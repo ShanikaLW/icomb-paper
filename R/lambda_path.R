@@ -1,0 +1,146 @@
+# a function to calculate a grid of lambda values
+# arguments:
+# x: original x matrix
+# y: original y matrix
+# alpha: the elasticnet mixing parameter with 0 <= alpha <= 1 (alpha = 0: ridge) and (alpha = 1: lasso)
+# standardize: whether the columns of x should be standardized
+# standardize_response: whether the columns of y should be standardized
+# intercept: should intercepts be fitted
+# lambda_min_ratio: smallest value of lambda, as a fraction of lambda_max, "expand" uses 10^(-floor(log10(lambda_max))-2)
+# nlambda: the number of lambda values
+
+# values: returns a vector of lambda values
+
+lambda_path <- function(x, y, alpha = 1, standardize = FALSE, 
+                        standardize_response = FALSE,
+                        intercept = TRUE,
+                        lambda_min_ratio = ifelse(nobs < nvars, 0.01, 1e-04), 
+                        nlambda = 100) {
+  dimx <- dim(x)
+  if (is.null(dimx) | (dimx[2] <= 1)) 
+    stop("x should be a matrix with 2 or more columns")
+  if (any(is.na(x))) 
+    stop("x has missing values")
+  nobs <- dimx[1]
+  nvars <- dimx[2]
+  
+  dimy <- dim(y)
+  if (is.null(dimy) | (dimy[2] <= 1)) 
+    stop("y should be a matrix with 2 or more columns")
+  if (any(is.na(y))) 
+    stop("y has missing values")
+  if (dimy[1] != dimx[1]) 
+    stop("number of observations in actual and fitted does not match")
+  
+  if (lambda_min_ratio >= 1 & is.numeric(lambda_min_ratio)) 
+    stop("lambda_min_ratio should be less than 1")
+  
+  if (alpha > 1) {
+    warning("alpha > 1; set to 1")
+    alpha <- 1
+  }
+  if (alpha < 0) {
+    warning("alpha < 0; set to 0")
+    alpha <- 0
+  }
+  
+  if (intercept) {
+    xm <- colMeans(x)
+    ym <- colMeans(y)
+  } else {
+    xm <- rep(0, times = nvars)
+    ym <- rep(0, times = dimy[2])
+  }
+  
+  ysd <- sqrt(colMeans(scale(y, center = TRUE, scale = FALSE)^2))
+  yconst_var <- ysd < sqrt(.Machine$double.eps) # identify constant responses
+  
+  if (!standardize_response) {
+    ysd <- rep(1, times = dimy[2])
+  }
+  y <- scale(y, center = ym, scale = ysd)
+  
+  if (standardize_response) {
+    if (length(which(yconst_var)) == dimy[2])
+      stop("All used responses have zero variance")
+    y <- y[, !yconst_var]
+  }
+  
+  xsd <- sqrt(colMeans(scale(x, center = TRUE, scale = FALSE)^2))
+  xconst_var <- xsd < sqrt(.Machine$double.eps) # identify constant predictors
+  
+  if (!standardize) {
+    xsd <- rep(1, times = nvars)
+  }
+  
+  if (length(which(xconst_var)) == nvars)
+    stop("All used predictors have zero variance")
+  
+  x <- scale(x, center = xm, scale = xsd)
+  x <- x[, !xconst_var]
+  
+  lambda_max <- max(sqrt(rowSums(crossprod(x, y)^2))/nobs) / pmax(alpha, 0.001)
+  
+  if (lambda_min_ratio == "expand") 
+    lambda_min_ratio <- 10^(-floor(log10(lambda_max))-2)
+  lambda_min <- lambda_min_ratio * lambda_max
+  exp(seq(log(lambda_max), log(lambda_min), length.out = nlambda))
+}
+
+# Test cases
+# set.seed(2024)
+# n <- 100
+# p <- 50
+# k <- 2
+# 
+# x <- matrix(rnorm(n * p), ncol = p)
+# y <- matrix(rnorm(n * k), ncol = k)
+# glmnet(x, y, family = "mgaussian", standardize = FALSE,
+#        standardize.response = FALSE, intercept = FALSE)$lambda
+# 
+# lambda_path(x, y, alpha = 1)
+# 
+# glmnet(x, y, family = "mgaussian", standardize = FALSE,
+#        alpha = 0,
+#        standardize.response = FALSE, intercept = FALSE)$lambda
+# 
+# lambda_path(x, y, alpha = 0)
+# 
+# # standardized xs
+# glmnet(x, y, family = "mgaussian", standardize = TRUE,
+#        alpha = 1,
+#        standardize.response = FALSE, intercept = FALSE)$lambda
+# 
+# lambda_path(x, y, alpha = 1, standardize = TRUE)
+# 
+# glmnet(x, y, family = "mgaussian", standardize = TRUE,
+#        alpha = 0,
+#        standardize.response = FALSE, intercept = FALSE)$lambda
+# 
+# lambda_path(x, y, alpha = 0, standardize = TRUE)
+# 
+# # standardized ys
+# glmnet(x, y, family = "mgaussian", standardize = FALSE,
+#        alpha = 1,
+#        standardize.response = TRUE, intercept = FALSE)$lambda
+# 
+# lambda_path(x, y, alpha = 1, standardize = FALSE, standardize_response = TRUE)
+# 
+# glmnet(x, y, family = "mgaussian", standardize = FALSE,
+#        alpha = 0,
+#        standardize.response = TRUE, intercept = FALSE)$lambda
+# 
+# lambda_path(x, y, alpha = 0, standardize = FALSE, standardize_response = TRUE)
+# 
+# # standardized both xs and ys
+# glmnet(x, y, family = "mgaussian", standardize = TRUE,
+#        alpha = 1,
+#        standardize_response = TRUE, intercept = FALSE)$lambda
+# 
+# lambda_path(x, y, alpha = 1, standardize = TRUE, standardize_response = TRUE)
+# 
+# glmnet(x, y, family = "mgaussian", standardize = TRUE,
+#        alpha = 0,
+#        standardize.response = TRUE, intercept = FALSE)$lambda
+# 
+# lambda_path(x, y, alpha = 0, standardize = TRUE, standardize_response = TRUE)
