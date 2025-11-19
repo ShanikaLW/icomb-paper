@@ -70,7 +70,8 @@ cv_icomb <- function (fitted, actual, forecasts, train_size, alpha = 1, standard
   recon <- array(, dim = c(niter, dimy[2], length(lambda)))
   test <- actual[(train_size + 1):nobs, ]
   ysd_all <- array(, dim = c(niter, dimy[2]))
-  for (i in 1:niter) {
+  out <-
+  foreach (i=1:niter, .inorder=FALSE, .packages="glmnet") %dopar% {
     train_set <- 1:(train_size + i - 1)
     xdata <- fitted[train_set, ]
     ydata <- actual[train_set, ]
@@ -90,8 +91,17 @@ cv_icomb <- function (fitted, actual, forecasts, train_size, alpha = 1, standard
     
     fit <- glmnet(xdata[, !xconst_var], ydata, family = "mgaussian", standardize = standardize,
                   standardize.response = standardize_response, intercept = intercept, alpha = alpha, lambda = lambda, maxit = maxit)
-    recon[i, , ] <- predict(fit, newx = fitted[train_size + i, !xconst_var, drop = FALSE])
+    list(
+      recon = predict(fit, newx = fitted[train_size + i, !xconst_var, drop = FALSE]),
+      coef = coef(fit) ## currently unused, but can be also extracted
+      )
   }
+  ## need to extract recon from the results
+  recon <- sapply(out, function(x) x$recon[1,,])
+  ## sapply will flatten the result dims so have to restore them
+  dim(recon) <- c(dim(out[[1]]$recon)[-1], dim(recon)[2])
+  ## make the iter first dim instead of last
+  recon <- aperm(recon, c(3,1,2))
   err <- sweep(recon, 1:2, test)
 
   if (align_loss) {
